@@ -1,0 +1,1 @@
+Python and R project to do financial analysis such as risk management, mathematical machine learning
