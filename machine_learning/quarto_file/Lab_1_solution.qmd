@@ -1,0 +1,832 @@
+---
+title: "Computer lab 1"
+subtitle: "Machine Learning: Mathematical Theory and Applications"
+author: 
+  - Minh Thang Trinh Winston (25585391)
+date: last-modified
+format: 
+  html:
+    self-contained: true
+toc: true
+execute:
+  error: false
+language: 
+  title-block-author-single: " "
+theme: Default
+title-block-banner-color: Primary
+editor: visual
+---
+
+```{=html}
+<style>
+.boxed-text {
+  border: 2px solid black;
+  padding: 10px;
+  margin: 10px 0;
+}
+</style>
+```
+## README
+
+I split the whole computer lab into 3 main sections including (1) `Question 1 and 2`, (2) `Question 3, 4 and 5` and (3) `Question 6, 7 and 8` since these group has each own relevant data/questions and also theri result need to be compared together.
+
+To ensure all data set is raw from files, I already add scripts to remove/clean at the beginning of each main section name `Prepare Data for Problem XXX`. In these 3 code block, therefore, please kindly change the file path of each raw data file which related to your computer.
+
+## Prepare Libraries
+
+To ensure every code will be smoothly run, I add a section that includes all packages needed for the whole file, please kindly run if you lack some of them.
+
+```{r}
+# install.packages("splines")
+# install.packages("caret")
+# install.packages("ggplot2") # Plot time series
+# install.packages("glmnet")
+# install.packages("scales") # Convert complex numbers into percentages
+# install.packages("Hmisc") # I use Lag() from this package
+# install.packages("pROC") # Plot ROC curve
+```
+
+## Prepare Data for Problem 1-2
+
+```{r}
+# Reset data
+rm(list=ls()) # Remove variables 
+cat("\014") # Clean workspace
+
+# Prepare dataset
+bike_data <- read.csv('/Users/thangtm589/Desktop/UTS/37401 Machine Learning/Computer Lab/Lab 1/bike_rental_hourly.csv')
+bike_data$log_cnt <- log(bike_data$cnt)
+bike_data$hour <- bike_data$hr/23 # transform [0, 23] to [0, 1]. 0 is midnight, 1 is 11 PM
+bike_data_train <- bike_data[bike_data$dteday >= as.Date("2011-02-01") & bike_data$dteday <= as.Date("2011-03-31"), ]
+bike_data_test <- bike_data[bike_data$dteday >= as.Date("2011-04-01") & bike_data$dteday <=  as.Date("2011-05-31"), ]
+```
+
+## Problem 1. Polynomial regression for bike rental data
+
+#### Problem 1.1
+
+```{r}
+# Design responses and features
+y_train <- bike_data_train$log_cnt
+y_test <- bike_data_test$log_cnt
+p <- 8 # Order of polynomial
+X_train <- cbind(1, poly(bike_data_train$hour, p, raw = TRUE, simple = TRUE)) # Design matrix / matrix of features (including intercept)
+beta_hat <- solve(t(X_train)%*%X_train)%*%t(X_train)%*%y_train
+
+# Plot training data, test data, and fit on a fine grid.
+plot(log_cnt ~ hour, data = bike_data_train, col = "purple", ylim = c(0, 8))
+lines(bike_data_test$hour, bike_data_test$log_cnt, type = "p", col = "lightcoral")
+hours_grid <- seq(0, 1, length.out = 1000)
+X_grid <- cbind(1, poly(hours_grid, p, raw = TRUE, simple = TRUE))
+y_hat_grid <- X_grid%*%beta_hat
+lines(hours_grid, y_hat_grid, lty = 1, col = "lightcoral")
+legend(x = "topleft", pch = c(1, 1, NA), lty = c(NA, NA, 1), col = c("purple", "lightcoral",  "lightcoral"), legend=c("Train", "Test", "Fitted curve"))
+```
+
+#### Problem 1.2
+
+```{r}
+p_seq <- c(1:10) # Choose number of polynomial orders
+RMSE_train_seq <- c()
+RMSE_test_seq <- c()
+
+# Calculate RMSE
+for(p in p_seq)
+{
+  X_train <- cbind(1, poly(bike_data_train$hour, p, raw = TRUE, simple = TRUE)) # Design matrix / matrix of features (including intercept)
+  beta_hat <- solve(t(X_train)%*%X_train)%*%t(X_train)%*%y_train
+
+  # Predict in-sample and compute RMSE
+  y_hat_train <- X_train%*%beta_hat 
+  RMSE_train <- sqrt(sum((y_train - y_hat_train)^2)/length(y_train))
+  RMSE_train_seq <- c(RMSE_train_seq, RMSE_train)
+
+  # Predict out-of-sample and compute RMSE
+  X_test <- cbind(1, poly(bike_data_test$hour, p, raw = TRUE, simple = TRUE))
+  y_hat_test <- X_test%*%beta_hat
+  RMSE_test <- sqrt(sum((y_test - y_hat_test)^2)/length(y_test))
+  RMSE_test_seq <- c(RMSE_test_seq, RMSE_test)
+}
+df <- data.frame(p_seq, RMSE_train_seq, RMSE_test_seq)
+
+# Plot
+plot(RMSE_train_seq ~ p_seq, data = df, col = "purple", type = "l", xlim = c(1, 10), xgap.axis = 1, ylim = c(0.6, 1.4), xlab = "Order", ylab = "RMSE", main = "RMSE - training vs test")
+axis(1, at = 1:10, labels = seq(1,10,1))
+# axis(2, at = seq(0.6,1.4,0.1), labels = seq(0.6,1.4,0.1))
+lines(p_seq, RMSE_test_seq, type = "l", col = "red")
+grid(nx = NULL, ny = NULL, col = "lightgray", lty = "dotted")
+abline(v=df$p_seq, col="lightgray", lty="dotted", lwd=par("lwd"))
+legend(x = "topright", lty = c(1, 1), col = c("purple", "lightcoral"), legend=c("RMSE Training", "RMSE Test"))
+```
+
+From the plot, we can see the RMSE for both training and test data have a tendency to go down. Especially, from the Order of polynomial of 8 to 10, the values seem to flatten out which is a sign that the models already reach a high level of complexity. This means we are overfitting the data.
+
+#### Problem 1.3
+
+```{r}
+# Sort data
+bike_data_train <- bike_data_train[order(bike_data_train$hour),] # Sort in-sample data by hour
+bike_data_test <- bike_data_test[order(bike_data_test$hour),] # Sort out-of-sample data by hour
+
+# Fit in-sample data
+# Using Loess and Predict
+loess <- loess(log_cnt ~ hour,  data = bike_data_train) # standard setting
+##loess_train <- loess(log_cnt ~ hour,  data = bike_data_train, span = 0.75, degree = 2)
+# Predict y hat value basing on test data
+loess_y_hat_test <- predict(loess, newdata = bike_data_test$hour)
+
+# Using Poly
+y_train <- bike_data_train$log_cnt
+p <- 8 # Order of polynomial
+X_train <- cbind(1, poly(bike_data_train$hour, p, raw = TRUE, simple = TRUE)) # Design matrix / matrix of features (including intercept)
+beta_hat <- solve(t(X_train)%*%X_train)%*%t(X_train)%*%y_train
+X_test <- cbind(1, poly(bike_data_test$hour, p, raw = TRUE, simple = TRUE))
+
+# Plot 
+# Plot training and test dataset
+plot(x = bike_data_train$hour, y = bike_data_train$log_cnt, main="Loess and Poly Comparison", xlab="hour", ylab="log_cnt",  ylim = c(0,7), col = "purple")
+lines(x = bike_data_test$hour, y = bike_data_test$log_cnt, type = "p", col = "lightcoral")
+
+# Plot loess curve
+lines(loess_y_hat_test, x = bike_data_test$hour, col="blue")
+
+# Plot poly curve
+hours_grid <- seq(0, 1, length.out = 1000)
+X_grid <- cbind(1, poly(hours_grid, p, raw = TRUE, simple = TRUE))
+y_hat_grid <- X_grid%*%beta_hat
+lines(hours_grid, y_hat_grid, lty = 1, col = "red")
+
+# Add labels
+legend(x = "topleft", pch = c(1, 1, NA, NA), lty = c(NA, NA, 1, 1), col = c("purple", "lightcoral", "blue", "red"), legend=c("Training Data", "Test Data", "Loess Curve", "Poly Curve"), cex = 0.6)
+
+# Calculate RMSE
+RMSE_loess <- sqrt(sum((bike_data_test$log_cnt - loess_y_hat_test)^2)/length(bike_data_test$log_cnt))
+RMSE_poly_8 <- sqrt(sum((bike_data_test$log_cnt - X_test%*%beta_hat)^2)/length(bike_data_test$log_cnt))
+
+# Print RMSE
+cat(paste0("RMSE Loess:                        ", RMSE_loess, "\n",
+           "RMSE Polynomial at the order of 8: ", RMSE_poly_8))
+```
+
+Basing on the plot, the blue curve of Loess is smoother and seems to be underfitting data since it just has maximum order of polynomial up to 2. Besides that, RMSE of Polynomial at the order of 8 is also better then Loess method.
+
+## Problem 2. Regularised spline regression for bike rental data
+
+#### Problem 2.1
+
+```{r}
+# Main -----------
+suppressMessages(library(splines))
+knots <- seq(0.05, 0.95, length.out = 25)
+X_train <- ns(bike_data_train$hour, knots = knots, intercept = TRUE)
+X_test <- ns(bike_data_test$hour, knots = knots, intercept = TRUE)
+y_train <- as.matrix(bike_data_train$log_cnt)
+y_test <- as.matrix(bike_data_test$log_cnt)
+
+# Calculate beta ridge estimator with lambda and Fit model
+indicator_mattrix <- matrix(, nrow=length(knots) + 2, ncol=length(knots) + 2)
+for(row in 1:(length(knots) + 2)) {
+  for(col in 1:(length(knots) + 2)) {
+    if (row == col) {
+      indicator_mattrix[row,col] = 1
+    } else {
+      indicator_mattrix[row,col] = 0
+    }
+  } 
+}
+
+# Calculate RMSE for each lambda
+rmse <- data.frame(matrix(ncol = 2, nrow = 0))
+for (lambda in seq(0, 1, length.out=100)) {
+  beta_ridge <- solve(t(X_train)%*%X_train + lambda*indicator_mattrix)%*%t(X_train)%*%y_train
+  y_hat_test <- X_test%*%beta_ridge
+  RMSE_test <- sqrt(sum((y_test - y_hat_test)^2)/length(y_test))
+  rmse[nrow(rmse) + 1,] <- c(lambda, RMSE_test)
+}
+colnames(rmse) <- c("lambda", "RMSE_test")
+
+# Choose the most suitable value of lambda having lowest RMSE
+suitable_lambda <- rmse[which.min(rmse$RMSE_test),]$lambda
+beta_ridge <- solve(t(X_train)%*%X_train + suitable_lambda*indicator_mattrix)%*%t(X_train)%*%y_train # Apply the most suitable lambda
+
+# Plot
+plot(log_cnt ~ hour, data = bike_data_train, col = "cornflowerblue", ylim = c(0, 8))
+lines(bike_data_test$hour, bike_data_test$log_cnt, type = "p", col = "lightcoral")
+hours_grid <- seq(0, 1, length.out = 1000)
+X_grid <- ns(hours_grid, knots = knots, intercept = TRUE) # cbind(1, ns(hours_grid, knots = knots))
+y_hat_spline_grid <- X_grid%*%beta_ridge
+lines(hours_grid, y_hat_spline_grid, lty = 1, col = "lightcoral")
+legend(x = "topleft", pch = c(1, 1, NA), lty = c(NA, NA, 1), col = c("cornflowerblue", "lightcoral",  "lightcoral"), legend=c("Train", "Test", "Spline L2"))
+```
+
+#### Problem 2.2
+
+```{r}
+# Fit model with cross-validation glmnet
+suppressMessages(library(glmnet))
+fit = cv.glmnet(x = X_train, y = y_train, alpha = 0, nfolds = 10) # ridge penalty with alpha=0
+
+# Use the optimal lambda by applying the one-standard deviation rule
+y_hat_train <- predict(fit, newx=X_train, s=fit$lambda.1se)
+y_hat_test <- predict(fit, newx=X_test, s=fit$lambda.1se)
+
+# Plot
+plot(log_cnt ~ hour, data = bike_data_train, col = "cornflowerblue", ylim = c(0, 8))
+lines(bike_data_test$hour, bike_data_test$log_cnt, type = "p", col = "lightcoral")
+
+# Plot predicted values
+y_hat_spline_grid <- predict(fit, newx=X_grid, s=fit$lambda.1se)
+lines(hours_grid, y_hat_spline_grid, lty = 1, col="purple")
+legend(x = "topleft", pch = c(1, 1, NA), lty = c(NA, NA, 1), col = c("cornflowerblue", "lightcoral",  "purple"), legend=c("Train", "Test", "Spline L2"))
+
+# Compute RMSE
+RMSE_train_22 <- sqrt(sum((y_train - y_hat_train)^2)/length(y_train))
+RMSE_test_22 <- sqrt(sum((y_test - y_hat_test)^2)/length(y_test))
+
+# Print RMSE
+cat(paste0("RMSE Training Problem 2.2: ", RMSE_train_22, "\n",
+           "RMSE Test Problem 2.2:     ", RMSE_test_22))
+```
+
+#### Problem 2.3
+
+```{r}
+# Fit model
+fit = cv.glmnet(x = X_train, y = y_train, alpha = 0, nfolds = 10) # ridge penalty with alpha=0
+
+# Use the optimal lambda that minimises the mean cross-validated error
+y_hat_train <- predict(fit, newx=X_train, s=fit$lambda.min)
+y_hat_test <- predict(fit, newx=X_test, s=fit$lambda.min)
+
+# Compute RMSE
+RMSE_train_23 <- sqrt(sum((y_train - y_hat_train)^2)/length(y_train))
+RMSE_test_23 <- sqrt(sum((y_test - y_hat_test)^2)/length(y_test))
+
+# Print RMSE
+cat(paste0("RMSE Training Problem 2.3: ", RMSE_train_23, "\n",
+           "RMSE Test Problem 2.3:     ", RMSE_test_23))
+```
+
+The training RMSE of the model using the optimal $\lambda$ that minimises the mean cross-validated error is better since it try to fit the model leading to lowest error, while the one using the optimal $\lambda$ using the one-standard deviation rule just chooses $\lambda$ among others which results in best errors provided that the model is the least complex. Therefore, the former model might tend to be overfitting while the latter one have a better generalization performance so we can the out-of-sample RMSE of the model having $\lambda$ obtained by using the one-standard deviation rule is better.
+
+#### Problem 2.4
+
+```{r}
+# Fit model
+fit = cv.glmnet(x = X_train, y = y_train, alpha = 1, nfolds = 10) # lasso penalty with alpha=1
+
+# Use the optimal lambda by applying the one-standard deviation rule
+y_hat_train <- predict(fit, newx=X_train, s=fit$lambda.1se)
+y_hat_test <- predict(fit, newx=X_test, s=fit$lambda.1se)
+
+# Compute RMSE
+RMSE_train_24 <- sqrt(sum((y_train - y_hat_train)^2)/length(y_train))
+RMSE_test_24 <- sqrt(sum((y_test - y_hat_test)^2)/length(y_test))
+
+# Print RMSE
+cat(paste0("RMSE Training Problem 2.4: ", RMSE_train_24, "\n",
+           "RMSE Test Problem 2.4:     ", RMSE_test_24))
+```
+
+We can see RMSE for both training and test data of the model applying Lasso is worse than the one applying Ridge penalty. This is because the Lasso tends to shrinks some coefficients to zero, which means the model might be less complex and have higher RMSE.
+
+## Prepare Data for Problem 3-4-5
+
+```{r}
+# Reset data ----
+rm(list=ls()) # Remove variables 
+cat("\014") # Clean workspace
+
+# Prepare dataset -----
+bike_data <- read.csv('/Users/thangtm589/Desktop/UTS/37401 Machine Learning/Computer Lab/Lab 1/bike_rental_hourly.csv')
+bike_data$log_cnt <- log(bike_data$cnt)
+bike_data$hour <- bike_data$hr/23 # transform [0, 23] to [0, 1]. 0 is midnight, 1 is 11 PM
+
+# Main -----------------------------------------
+# One hot for weathersit
+one_hot_encode_weathersit <- model.matrix(~ as.factor(weathersit) - 1,data = bike_data)
+one_hot_encode_weathersit  <- one_hot_encode_weathersit[, -1] # Remove reference category
+colnames(one_hot_encode_weathersit) <- c('cloudy', 'light rain', 'heavy rain')
+bike_data <- cbind(bike_data, one_hot_encode_weathersit)
+
+# One hot for weekday
+one_hot_encode_weekday <- model.matrix(~ as.factor(weekday) - 1,data = bike_data)
+one_hot_encode_weekday  <- one_hot_encode_weekday[, -1] # Remove reference category
+colnames(one_hot_encode_weekday) <- c('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat')
+bike_data <- cbind(bike_data, one_hot_encode_weekday)
+
+# One hot for season
+one_hot_encode_season <- model.matrix(~ as.factor(season) - 1,data = bike_data)
+one_hot_encode_season  <- one_hot_encode_season[, -1] # Remove reference category
+colnames(one_hot_encode_season) <- c('Spring', 'Summer', 'Fall')
+bike_data <- cbind(bike_data, one_hot_encode_season)
+
+# Split training and test data
+bike_data_train <- bike_data[bike_data$dteday >= as.Date("2011-01-01") & bike_data$dteday <= as.Date("2012-05-31"), ]
+bike_data_test <- bike_data[bike_data$dteday >= as.Date("2012-06-01") & bike_data$dteday <=  as.Date("2012-12-31"), ]
+```
+
+## Problem 3. Regularised regression for bike rental data with more features and data
+
+#### Problem 3.1
+
+```{r}
+# Design knot and data
+library(glmnet)
+suppressMessages(library(splines))
+hour_test <- ns(bike_data_test$hour, df=10, intercept=FALSE)
+knots <- attr(hour_test, "knots")
+hour_train <- ns(bike_data_train$hour, df=10, knots=knots, intercept=FALSE)
+y_train <- as.matrix(bike_data_train$log_cnt)
+y_test <- as.matrix(bike_data_test$log_cnt)
+
+# Set names for new hour column attached with its knot
+hour_colnames <- c()
+for (x in knots) {
+  hour_colnames <- c(hour_colnames, paste("hour", substr(toString(x),1,5), sep="_"))
+}
+colnames(hour_train) <- c(hour_colnames, "hour_outlier")
+colnames(hour_test) <- c(hour_colnames, "hour_outlier")
+
+# Design X 
+excluded_features <- c("instant", "dteday", "season", "mnth", "hr", "weekday", "weathersit", "casual", "registered", "cnt", "log_cnt", "hour")
+X_train <- cbind(bike_data_train[,!names(bike_data_train) %in% excluded_features], hour_train)
+X_test <- cbind(bike_data_test[,!names(bike_data_test) %in% excluded_features], hour_test)
+
+# Fit model
+fit = cv.glmnet(x = as.matrix(X_train), y = y_train, alpha = 1, nfolds = 10) # lasso penalty with alpha=1
+y_hat_train <- predict(fit, newx=as.matrix(X_train), s=fit$lambda.1se)
+y_hat_test <- predict(fit, newx=as.matrix(X_test), s=fit$lambda.1se)
+
+# Compute RMSE
+RMSE_train <- sqrt(sum((y_train - y_hat_train)^2)/length(y_train))
+RMSE_test <- sqrt(sum((y_test - y_hat_test)^2)/length(y_test))
+
+# Print RMSE
+cat(paste0("RMSE Training: ", RMSE_train, "\n",
+           "RMSE Test:     ", RMSE_test))
+```
+
+#### Problem 3.2
+
+```{r}
+# Fit model with glmnet
+fit = glmnet(x = as.matrix(X_train), y = y_train, alpha = 1, nfolds = 10) # lasso penalty
+
+# Create different colors for each feature
+suppressMessages(library(randomcoloR)) 
+colors <- distinctColorPalette(length(fit[["beta"]]@Dimnames[[1]]))
+
+# Plot
+plot(fit, xvar = "lambda", label = FALSE, col = colors)
+title("Lasso path - Bike rental data", line = 3)
+grid(nx = NULL, ny = NULL, col = "lightgray", lty = "dotted")
+legend("topright", inset = c(0, 0), legend = fit[["beta"]]@Dimnames[[1]], col = colors, lty = 1, cex = 0.4, xpd = TRUE)
+```
+
+According the plot, determining 3 most important features depends on the value of $\lambda$ we choose. For example, if we choose `log(lambda) around -2.5`, which means `lambda arround 0.082`, 3 most important features are respectively `fall`, `hour_826` and `temp`. If we keep increasing `lambda`, we can see the coefficients will be almost forced to be zero.
+
+#### Problem 3.3
+
+```{r}
+# Calculate training residual and plot ACF
+residuals_train <- y_train - y_hat_train
+acf(residuals_train, main = "ACF - Training data")
+
+# Calculate test residual and plot ACF
+residuals_test <- y_test - y_hat_test
+acf(residuals_test, main = "ACF - Test data")
+```
+
+With the 95% confidence interval, ACF plot indicates there exists an autocorrelation when many solid lines exceed the blue dash line area throughout the lag values. The spikes at regular intervals (around lags 5, 12, and 24) show a possible cyclic pattern in the data. This might indicate a repetitive behavior occurring at regular intervals. So this is not a white noise.
+
+## Problem 4. Regularised time series regression for bike rental data
+
+#### Problem 4.1
+
+```{r}
+# Get last-week data of test data
+bike_data_test <- bike_data[bike_data$dteday >= as.Date("2012-12-25") & bike_data$dteday <=  as.Date("2012-12-31"), ] 
+
+library(glmnet)
+suppressMessages(library(splines))
+hour_test <- ns(bike_data_test$hour, df=10, intercept=FALSE)
+y_test <- as.matrix(bike_data_test$log_cnt)
+
+# Re-design X test by Removing unused features and Adding lagged hours
+excluded_features <- c("instant", "dteday", "season", "mnth", "hr", "weekday", "weathersit", "casual", "registered", "cnt", "log_cnt", "hour")
+X_test <- cbind(bike_data_test[,!names(bike_data_test) %in% excluded_features], hour_test)
+
+# Fit model
+fit = cv.glmnet(x = as.matrix(X_train), y = y_train, alpha = 1, nfolds = 10) # lasso penalty
+y_hat_test <- predict(fit, newx=as.matrix(X_test), s=fit$lambda.1se)
+
+# Reserve data for Problem 4.3 regarding time series
+time_series <- data.frame(
+  as.POSIXct(paste(bike_data_test$dteday, bike_data_test$hr), format="%Y-%m-%d %H"), 
+  bike_data_test$cnt, 
+  exp(y_hat_test)) # Convert the reponse into the original scale
+colnames(time_series) <- c("datetime", "original_cnt", "fitted_cnt_41")
+
+# Plot
+suppressMessages(library(ggplot2))
+ggplot(data = time_series, aes(x = datetime)) +
+  geom_line(aes(y = original_cnt, colour = "Original")) +
+  geom_line(aes(y = fitted_cnt_41, colour = "Fitted")) +
+  scale_colour_manual("", 
+                      breaks = c("Original", "Fitted"),
+                      values = c("red", "blue")) +
+  xlab("Datetime") +
+  ylab("Counts") + 
+  theme(axis.text.x=element_text(angle=60, hjust=1)) 
+```
+
+The fitted line somehow follow the trend of true data already. However, the plot indicates that the gap between fitted values and original values are significant across the time series.
+
+#### Problem 4.2
+
+```{r}
+# Re-sort data to ensure that we can apply lag()
+bike_data_train <- bike_data_train[order(bike_data_train$dteday, bike_data_train$hr), ] # Sort by dteday first and then hour
+bike_data_test <- bike_data_test[order(bike_data_test$dteday, bike_data_test$hr), ] # Sort by dteday first and then hour
+
+# Design X
+# Add lagged log_cnt_values
+suppressMessages(library(Hmisc)) # I use Lag() from Hmisc because sometimes I see normal lag() function faces issues
+bike_data_train$log_cnt_lag1hr <- Lag(bike_data_train$log_cnt, shift = 1)
+bike_data_train$log_cnt_lag2hr <- Lag(bike_data_train$log_cnt, shift = 2)
+bike_data_train$log_cnt_lag3hr <- Lag(bike_data_train$log_cnt, shift = 3)
+bike_data_train$log_cnt_lag4hr <- Lag(bike_data_train$log_cnt, shift = 4)
+bike_data_train$log_cnt_lag24hr <- Lag(bike_data_train$log_cnt, shift = 24)
+bike_data_train <- na.omit(bike_data_train) # Remove row with NA values
+
+bike_data_test$log_cnt_lag1hr <- Lag(bike_data_test$log_cnt, shift = 1)
+bike_data_test$log_cnt_lag2hr <- Lag(bike_data_test$log_cnt, shift = 2)
+bike_data_test$log_cnt_lag3hr <- Lag(bike_data_test$log_cnt, shift = 3)
+bike_data_test$log_cnt_lag4hr <- Lag(bike_data_test$log_cnt, shift = 4)
+bike_data_test$log_cnt_lag24hr <- Lag(bike_data_test$log_cnt, shift = 24)
+bike_data_test <- na.omit(bike_data_test) # Remove row with NA values
+
+# Add knots
+suppressMessages(library(glmnet))
+suppressMessages(library(splines))
+hour_test <- ns(bike_data_test$hour, df=10, intercept=FALSE)
+knots <- attr(hour_test, "knots")
+hour_train <- ns(bike_data_train$hour, df=10, knots=knots, intercept=FALSE)
+
+# Set names for new hour column attached with its knot
+hour_colnames <- c()
+for (x in c(0, knots)) {
+  hour_colnames <- c(hour_colnames, paste("hour", toString(x), sep="_"))
+}
+colnames(hour_train) <- hour_colnames
+colnames(hour_test) <- hour_colnames
+
+# Design X by Removing unused features and Adding lagged hours
+excluded_features <- c("instant", "dteday", "season", "mnth", "hr", "weekday", "weathersit", "casual", "registered", "cnt", "log_cnt", "hour")
+X_train <- cbind(bike_data_train[,!names(bike_data_train) %in% excluded_features], hour_train)
+X_test <- cbind(bike_data_test[,!names(bike_data_test) %in% excluded_features], hour_test)
+
+# Design Y
+y_train <- as.matrix(bike_data_train$log_cnt)
+y_test <- as.matrix(bike_data_test$log_cnt)
+
+# Fit model
+fit = cv.glmnet(x = as.matrix(X_train), y = y_train, alpha = 1, nfolds = 10) # lasso penalty
+y_hat_train <- predict(fit, newx=as.matrix(X_train), s=fit$lambda.1se)
+y_hat_test <- predict(fit, newx=as.matrix(X_test), s=fit$lambda.1se)
+
+# Compute and Print RMSE
+RMSE_train <- sqrt(sum((y_train - y_hat_train)^2)/length(y_train))
+RMSE_test <- sqrt(sum((y_test - y_hat_test)^2)/length(y_test))
+
+cat(paste0("RMSE Training: ", RMSE_train, "\n",
+           "RMSE Test:     ", RMSE_test))
+
+# Compute residual for the test data and plot 
+residuals_test <- y_test - y_hat_test
+acf(residuals_test, main = "ACF - Test data")
+```
+
+The residuals from this model is much more adequate than the previous model when we can see almost ACF value solid line is located within the blue dash line area expect lag 0 (which is obvious). Moreover, the RMSEs are significantly better.
+
+#### Problem 4.3
+
+```{r}
+# Mapping data from above problems to time_series data
+time_series$fitted_cnt_42 <- c(rep(NA, 24), exp(y_hat_test)) # re-add first 24 hours as NA value
+
+# Plot
+library(ggplot2)
+ggplot(data = time_series, aes(x = datetime)) +
+  geom_line(aes(y = original_cnt, colour = "Original")) +
+  
+  # Add line of predicted value from 4.1 model
+  geom_line(aes(y = fitted_cnt_41, colour = "4.1 Spline")) +
+  
+  # Add line of predicted value from 4.2 model
+  geom_line(aes(y = fitted_cnt_42, colour = "4.2 Spline Adding Lags")) +
+  scale_colour_manual("", 
+                      breaks = c("Original", "4.1 Spline", "4.2 Spline Adding Lags"),
+                      values = c("red", "blue", "green")) +
+  xlab("Datetime") +
+  ylab("Counts") + 
+  theme(axis.text.x=element_text(angle=60, hjust=1)) 
+```
+
+The model adding lags of the response variable (green line) is more accurate then the previous one when at some peaks, its predicted values almost match the original values.
+
+## Problem 5. Regression trees for bike rental data
+
+#### Problem 5.1
+
+```{r}
+# Design data
+train <- data.frame(y_train, X_train)
+test <- data.frame(y_test, X_test)
+
+# Train model and fit
+library(tree)
+tree <- tree(y_train ~ ., data = train, control = tree.control(nobs = nrow(train), mincut = 2, minsize = 5, mindev = 0.01))
+y_hat_test <- predict(tree, newdata = test)
+```
+
+I already changed the setting as above but I see no much difference in terms of the plot of problem 5.2. Besides that, I recognized that the model just use 5 features instead of all data set when I checked by using `summary(tree)`.
+
+```{r}
+# Check the summary of model
+summary(tree)
+```
+
+Therefore, I analyzed the correlation among features in the training data by function `cor_matrix <- cor(train[, sapply(train, is.numeric)])` which show that there exist significant correlation so it is the reason why the model just use a small number of variables.
+
+```{r}
+# Analyze correlation among features
+cor_matrix <- cor(train[, sapply(train, is.numeric)])
+head(cor_matrix, 10)[,1:5] # Illustrate just a small part of correlation matrix
+```
+
+#### Problem 5.2
+
+```{r}
+# Plot tree structure
+plot(tree)
+text(tree, pos = 1, col = "blue", cex = 0.5, offset = 0.1) 
+title(main = "Spam and Ham Classification Tree ")
+```
+
+#### Problem 5.3
+
+```{r}
+# Mapping data from above roblems to time_series data
+# Convert the reponse into the original scale and re-add first 24 hours as NA value
+time_series$fitted_cnt_51 <- c(rep(NA, 24), exp(y_hat_test)) 
+
+# Plot
+library(ggplot2)
+ggplot(data = time_series, aes(x = datetime)) +
+  geom_line(aes(y = original_cnt, colour = "Original")) +
+  
+  # Add line of predicted value from 4.1 model
+  geom_line(aes(y = fitted_cnt_41, colour = "4.1 Spline")) +
+  
+  # Add line of predicted value from 4.2 model
+  geom_line(aes(y = fitted_cnt_42, colour = "4.2 Spline Adding Lags")) +
+  
+    # Add line of predicted value from 5.1 model
+  geom_line(aes(y = fitted_cnt_51, colour = "5.1 Tree")) +
+  scale_colour_manual("", 
+                      breaks = c("Original", "4.1 Spline", "4.2 Spline Adding Lags", "5.1 Tree"),
+                      values = c("red", "blue", "green", "purple")) +
+  xlab("Datetime") +
+  ylab("Counts") + 
+  theme(axis.text.x=element_text(angle=60, hjust=1)) 
+```
+
+The tree model (purple line) actually did a decent job of capturing broad trend and some peaks, which are somehow better than the spline model adding lagged values (green line). However, looking at some horizontal straight line in tree regression, we can see that the model is less complex than spline model with a less used variables (as mentioned in `Problem 5.1`). Moreover, the tree structure might be not deep enough in order to fully describe the complexity of original values.
+
+## Prepare Data for Problem 6-7-8
+
+```{r}
+# Reset data
+rm(list=ls()) # Remove variables 
+cat("\014") # Clean workspace
+
+# Prepare dataset
+set.seed(1234)
+library(caret)
+load(file = '/Users/thangtm589/Desktop/UTS/37401 Machine Learning/Computer Lab/Lab 1/spam_ham_emails.RData')
+Spam_ham_emails[, -1] <- scale(Spam_ham_emails[, -1])
+Spam_ham_emails['spam'] <- as.factor(Spam_ham_emails['spam'] == 1) # Changing from 1->TRUE, 0->FALSE
+levels(Spam_ham_emails$spam) <- c("not spam", "spam")
+
+train_obs <- createDataPartition(y = Spam_ham_emails$spam, p = .75, list = FALSE)
+train <- Spam_ham_emails[train_obs, ]
+test <- Spam_ham_emails[-train_obs, ]
+```
+
+## Problem 6. Logistic regression for classifying spam emails
+
+#### Problem 6.1
+
+```{r}
+# Fit the model with glm
+glm_fit <- glm(spam ~ ., family = binomial, data = train)
+y_prob_hat_test <- predict(glm_fit, newdata = test, type = "response")
+threshold <- 0.5 # Predict spam if probability > threshold
+y_hat_test <- as.factor(y_prob_hat_test > threshold)
+levels(y_hat_test) <- c("not spam", "spam")
+
+# Reconstruct the confusion matrix
+predict_6 <- data.frame(y_hat_test)
+predict_6$y_test <- test$spam
+confusion_matrix <- table(Prediction = predict_6$y_hat_test, Reference = predict_6$y_test)
+print(confusion_matrix)
+```
+
+#### Problem 6.2
+
+```{r}
+# Calculate, we set 'Positive' Class := spam, hence:
+tp <- sum(predict_6$y_hat_test == "spam" & predict_6$y_test == "spam")
+fn <- sum(predict_6$y_hat_test == "not spam" & predict_6$y_test == "spam")
+fp <- sum(predict_6$y_hat_test == "spam" & predict_6$y_test == "not spam")
+tn <- sum(predict_6$y_hat_test == "not spam" & predict_6$y_test == "not spam")
+
+# Calculate 
+accuracy <- (tp + tn) / (tp + fn + fp + tn)
+precision <- tp / (tp + fp)
+recall <- tp / (tp + fn)
+specificity <- tn / (fp + tn)
+
+# Print with the form of percentage
+library(scales)
+cat(paste0("accuracy:    ", percent(accuracy, accuracy = 0.001), "\n",
+           "precision:   ", percent(precision, accuracy = 0.001), "\n",
+           "recall:      ", percent(recall, accuracy = 0.001), "\n",
+           "specificity: ", percent(specificity, accuracy = 0.001)))
+```
+
+Accuracy indicate the percentage of accurately classified items (which means if the emails are spam, the model predict them as spam and vice versa).
+
+Precision in the case of "Spam" positive class means out of all decisions that classify emails as Spam, what percentage of the results are actually true spam. A high precision (close to 1) is good, emails pointed out as spam are almost spam. With a low precision (close to 0), it indicates that model is facing an issue which makes people receive a smaller number of important emails (which is not spam).
+
+Recall in the case of "Spam" positive class describes how large a proportion of spam emails are correctly predicted as spam. A high recall (close to 1) is good, spam emails are almost detected and excluded. A low recall (close to 0) means the model misses to exclude many truly spam emails which can annoy the customers.
+
+Specificity in the case of "Spam" positive class determine the percentage of ham emails predicted correctly among all truly ham emails. A high specificity (close to 1) is good, almost truly ham emails are kept for customers. However, a low specificity (close to 0) means many ham emails (which may be important) are falsely excluded by the model.
+
+#### Problem 6.3
+
+```{r}
+suppressMessages(library(pROC))
+roc_curve <- roc(test$spam, y_prob_hat_test, positive = "spam") # Set positive class to spam
+auc(roc_curve)
+
+# Shape the plot into square
+par(pty="s")
+
+# Plot it and also print AUC
+plot(roc_curve, main = "ROC Curve", xlab = "False positive rate", ylab = "True positive rate", legacy.axes = TRUE, auc.polygon=TRUE, print.auc = TRUE)
+```
+
+The ROC curve in the image is bowed towards the top left corner and AUC is 96.5%, which indicates good performance. The model has a high capability of correctly classifying spam or ham emails.
+
+## Problem 7. Decision trees for classifying spam emails
+
+#### Problem 7.1
+
+```{r}
+# Main ----------
+library(tree)
+
+# Train model and fit
+tree <- tree(spam ~ ., data = train)
+fit <- predict(tree, newdata = test, type = "class") # Get the values of y
+predict_7 <- data.frame(fit, test$spam)
+colnames(predict_7) <- c("y_hat_test", "y_test")
+
+```
+
+```{r}
+# Build confusionMatrix for logistic (problem 7)
+cm_6 <- confusionMatrix(data = predict_6$y_hat_test, predict_6$y_test, positive = "spam")
+performance_6 <- c(cm_6[["overall"]][["Accuracy"]], cm_6[["byClass"]][["Precision"]], cm_6[["byClass"]][["Recall"]], 1- cm_6[["byClass"]][["Specificity"]])
+
+# Build confusionMatrix for tree (problem 7)
+cm_7 <- confusionMatrix(data = predict_7$y_hat_test, predict_7$y_test, positive = "spam")
+performance_7 <- c(cm_7[["overall"]][["Accuracy"]], cm_7[["byClass"]][["Precision"]], cm_7[["byClass"]][["Recall"]], 1- cm_7[["byClass"]][["Specificity"]])
+
+# Create comparision table
+comparison <- data.frame(performance_6, performance_7)
+colnames(comparison) <- c("logistic", "tree")
+rownames(comparison) <- c("accuracy", "precision", "recall", "false positive rate")
+
+library(scales)
+comparison$logistic <- percent(comparison$logistic, accuracy = 0.01)
+comparison$tree <- percent(comparison$tree, accuracy = 0.01)
+print(comparison)
+```
+
+According to the above performance comparison table, we can see logistics regression yields a better performance across metrics. However, the gap is not really significant (just around 0.5% on average per each metric).
+
+#### Problem 7.2
+
+```{r}
+# Tree fit 
+tree_fit <- predict(tree, newdata = test, type = "tree")
+
+# Plot tree structure
+plot(tree_fit)
+text(tree_fit, pretty = 0, pos = 1, col = "blue", cex = 0.5, offset = 0.1) 
+title(main = "Spam and Ham Classification Tree ")
+```
+
+## Problem 8. k-nearest neighbour for classifying spam emails
+
+#### Problem 8.1
+
+I did try to optimize the algorithm but it is still heavy. Normally, it takes 90 seconds to completely finish if I choose k-NN running from 1 to 51.
+
+```{r}
+# Main -----------
+k <- 51 # set small KNN to optimize computaion and data
+col <- seq(2, 16, 1) # Ignore first column Spam/Ham
+
+predict_8 <- data.frame(matrix(ncol = 3, nrow = 0))
+
+# Fit model by K-NN 
+for(test_row in seq(1, nrow(test), 1)) 
+{
+  # Calculate Euclidean
+  euclidean_dist <- sqrt(rowSums((test[test_row,][rep(1,nrow(train)),][col] - train[col])^2))
+  df <- data.frame(train$spam, euclidean_dist)
+  colnames(df) <- c("y_train", "euclidean_dist")
+  df <- head(df[order(df$euclidean_dist, decreasing = FALSE), ], k) # Get k-nearest to optimize computation
+
+  for(knn in seq(1, k, 2)) # odd Ks only
+  {
+  # Apply majority vote to determine y hat value
+    if (sum(df[knn, ]$y_train == "not spam") > sum(df[knn, ]$y_train == "spam")) {
+      predict_8[nrow(predict_8) + 1,] <- c('not spam', toString(test[test_row,]$spam), knn) # y_hat_test, y_test, k
+    } else {
+      predict_8[nrow(predict_8) + 1,] <- c('spam', toString(test[test_row,]$spam), knn) # y_hat_test, y_test, k
+    }
+  }
+}
+colnames(predict_8) <- c("y_hat_test", "y_test", "knn")
+
+# Store misclassification rate and equivalent K
+mr <- data.frame(matrix(ncol = 2, nrow = 0)) 
+
+# Calculate misclassification rate
+for (knn in seq(1, k, 2))
+{
+  df <- predict_8[predict_8$knn == knn, ]
+  mr[nrow(mr) + 1,] <- c(knn, as.double(nrow(df[df$y_hat_test != df$y_test, ])) / nrow(df))
+}
+colnames(mr) <- c("knn", "misclassification_rate")
+
+# Optimal K which has lowest misclassfication_rate is:
+optimal_k <- mr[which.min(mr$misclassification_rate),]$knn
+misclassification_rate <- mr[which.min(mr$misclassification_rate),]$misclassification_rate
+
+# Print result
+cat(paste0("The optimal K is ", optimal_k, 
+           " which has misclassification rate around ", sprintf("%.5f", misclassification_rate)))
+
+# Prediction with optimal K to make comparison in Problem 8.2
+predict_8$y_hat_test <- as.factor(predict_8$y_hat_test)
+predict_8$y_test <- as.factor(predict_8$y_test)
+predict_8 <- predict_8[predict_8$knn == mr[which.min(mr$misclassification_rate),]$knn, ]
+```
+
+#### Problem 8.2
+
+```{r}
+# Build confusionMatrix for logistic (problem 6)
+cm_6 <- confusionMatrix(data = predict_6$y_hat_test, predict_6$y_test, positive = "spam")
+performance_6 <- c(cm_6[["overall"]][["Accuracy"]], cm_6[["byClass"]][["Precision"]], cm_6[["byClass"]][["Recall"]], 1- cm_6[["byClass"]][["Specificity"]])
+
+# Build confusionMatrix for tree (problem 7)
+cm_7 <- confusionMatrix(data = predict_7$y_hat_test, predict_7$y_test, positive = "spam")
+performance_7 <- c(cm_7[["overall"]][["Accuracy"]], cm_7[["byClass"]][["Precision"]], cm_7[["byClass"]][["Recall"]], 1- cm_7[["byClass"]][["Specificity"]])
+
+# Build confusionMatrix for k-nearest neighbour (problem 8)
+cm_8 <- confusionMatrix(data = predict_8$y_hat_test, predict_8$y_test, positive = "spam")
+performance_8 <- c(cm_8[["overall"]][["Accuracy"]], cm_8[["byClass"]][["Precision"]], cm_8[["byClass"]][["Recall"]], 1- cm_8[["byClass"]][["Specificity"]])
+
+
+# Create comparision table
+comparison <- data.frame(performance_6, performance_7, performance_8)
+colnames(comparison) <- c("logistic", "tree", "k_nearest_neighbour")
+rownames(comparison) <- c("accuracy", "precision", "recall", "false positive rate")
+
+# Convert numbers into percentage form
+library(scales)
+comparison$logistic <- percent(comparison$logistic, accuracy = 0.01)
+comparison$tree <- percent(comparison$tree, accuracy = 0.01)
+comparison$k_nearest_neighbour <- percent(comparison$k_nearest_neighbour, accuracy = 0.01)
+print(comparison)
+```
+
+Overall, the accuracy rate are not significantly different among 3 models (at least in terms of this `set.seed(1234)` random pick). Compared to Logistics and Tree regression, K-NN show a much better recall, which is 88.08%. This high recall indicates the better capability of K-NN of correctly detecting email as spam among all spam email, which help customers feel less annoyed. However, FPR in K-NN model is worse than other two models, which lead to more ham emails is filtered out by K-NN. Moreover, with lower precision (around 5% lower), K-NN model will get more ham emails when it predict emails as spam.

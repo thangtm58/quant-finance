@@ -1,0 +1,1108 @@
+---
+title: "Computer lab 3"
+subtitle: "Machine Learning: Mathematical Theory and Applications"
+author: 
+  - Minh Thang Trinh (25585391)
+date: last-modified
+format: 
+  html:
+    self-contained: true
+toc: true
+execute:
+  error: false
+language: 
+  title-block-author-single: " "
+theme: Default
+title-block-banner-color: Primary
+editor: visual
+---
+
+```{=html}
+<style>
+.boxed-text {
+  border: 2px solid black;
+  padding: 10px;
+  margin: 10px 0;
+}
+</style>
+```
+## Problem 1. Deep learning for spam email data (classification)
+
+```{r}
+rm(list=ls()) # Remove variables 
+cat("\014") # Clean workspace
+```
+
+```{r}
+# Load file and design data
+load(file = '/Users/thangtm589/Desktop/UTS/37401 Machine Learning/Computer Lab/Lab 3/spam_ham_emails.RData')
+set.seed(12345)
+suppressMessages(library(caret))
+Spam_ham_emails[, -1] <- scale(Spam_ham_emails[, -1])
+Spam_ham_emails[, 'spam'] <- as.integer(Spam_ham_emails[, 'spam'] == 1) 
+
+# Construct dataset
+train_obs <- createDataPartition(y = Spam_ham_emails$spam, p = .75, list = FALSE)
+train <- as.matrix(Spam_ham_emails[train_obs, ])
+y_train <- train[, 1]
+X_train <- train[, -1]
+test <- as.matrix(Spam_ham_emails[-train_obs, ])
+y_test <- test[, 1]
+X_test <- test[, -1]
+```
+
+```{r}
+suppressMessages(library(tensorflow))
+suppressMessages(library(keras3))
+tensorflow::tf$random$set_seed(12345)
+```
+
+```{r}
+model <- keras_model_sequential() 
+model %>% 
+  # Add first hidden layer
+  layer_dense(units = 12, activation = 'relu', input_shape = c(15)) %>% 
+  # Add regularisation via dropout to the first hidden layer
+  layer_dropout(rate = 0.3) %>% 
+  # Add second hidden layer
+  layer_dense(units = 6, activation = 'relu') %>%
+  # Add regularisation via dropout to the second hidden layer
+  layer_dropout(rate = 0.3) %>%
+  # Add layer that connects to the observations
+  layer_dense(units = 1, activation = 'sigmoid')
+summary(model)
+```
+
+::: boxed-text
+#### 💪 Problem 1.1
+
+What are the dimensions of $\boldsymbol{q}^{(1)},\boldsymbol{q}^{(2)}, \boldsymbol{b}^{(1)},\boldsymbol{b}^{(2)}, b^{(3)}, \boldsymbol{W}^{(1)}, \boldsymbol{W}^{(2)}, \boldsymbol{W}^{(3)}$, and $\Pr(y =1|\mathbf{x})$?
+:::
+
+Basing on the above model configuration, we set up `layer_dense(units = 12)` for the first hidden layer, `layer_dense(units = 6)` for the second hidden layer and `layer_dense(units = 1)` for output
+
+Therefore, we get:
+
+The dimension of $\boldsymbol{q}^{(1)}$ is $12\times1$, the output of the first hidden layer has 12 neurons.
+
+The dimension of $\boldsymbol{b}^{(1)}$ is $12\times1$, the number of biases corresponds to 12 neurons.
+
+The dimension of $\boldsymbol{W}^{(1)}$ is is $12\times15$, the shape of input data has 15 features, which times 12 neurons in the first hidden layer.
+
+The dimension of $\boldsymbol{q}^{(2)}$ is $6\times1$, the output of the first hidden layer has 6 neurons.
+
+The dimension of $\boldsymbol{b}^{(2)}$ is $6\times1$, the number of biases corresponds to 6 neurons.
+
+The dimension of $\boldsymbol{W}^{(2)}$ is $6\times12$, the shape of data is 12 as a result of the first hidden layer, which times 6 neurons in the first hidden layer.
+
+The dimension of $\Pr(y =1|\mathbf{x})$ is $1\times1$, the output has 1 unit.
+
+The dimension of $\boldsymbol{b}^{(3)}$ is $1\times1$, the output has 1 bias.
+
+The dimension of $\boldsymbol{W}^{(3)}$ is $1\times6$, the shape of data is 6 as a result of the second hidden layer.
+
+::: boxed-text
+#### 💪 Problem 1.2
+
+What is the number of parameters for each of the three equations above ($\mathbf{x}$ and $\boldsymbol{q}$ are not parameters)? Verify that this agrees with the output of `summary(model)` above.
+:::
+
+With default setting `use_bias=TRUE`, we have:
+
+The number of parameters for equation $\boldsymbol{q}^{(1)} =h\left(\boldsymbol{W}^{(1)}\mathbf{x}+\boldsymbol{b}^{(1)}\right)$ is 192 including 180 for $\boldsymbol{W}^{(1)}$ and 12 for $\boldsymbol{b}^{(1)}$.
+
+The number of parameters for equation $\boldsymbol{q}^{(2)} =h\left(\boldsymbol{W}^{(2)}\boldsymbol{q}^{(1)}+\boldsymbol{b}^{(2)}\right)$ is 78 including 72 for $\boldsymbol{W}^{(2)}$ and 6 for $\boldsymbol{b}^{(2)}$.
+
+The number of parameters for equation $\Pr(y =1|\mathbf{x}) =g\left(\boldsymbol{W}^{(3)}\boldsymbol{q}^{(2)}+\boldsymbol{b}^{(3)}\right)$ is 7 including 6 for $\boldsymbol{W}^{(3)}$ and 1 for $\boldsymbol{b}^{(3)}$.
+
+This is aligned with column Param# in the summary of above model, where the first hidden layer `dense_3` showed `192`, the second hidden layer `dense_4` showed `78` and the output `dense_5` showed `7`. The total number of parameters in the whole network is:
+
+$$
+192 + 78 + 7 = 277
+$$
+
+::: boxed-text
+#### 💪 Problem 1.3
+
+Fit a one layer dense neural network with 8 hidden units to the spam data using the ADAM optimiser. You can use the same settings as the previous problem, but feel free to experiment. How does this model compare to the two layer dense model above?
+:::
+
+First, we continue to construct 2-layer dense model as follows:
+
+```{r}
+# Construct 2-layer dense model 
+# Set early stopping 
+early_stopping <- callback_early_stopping(monitor="val_loss", patience = 10, restore_best_weights = TRUE)
+
+# Compile model
+model %>% compile(loss = 'binary_crossentropy', optimizer = 'adam', metrics = c('accuracy', 'AUC'))
+
+# Fit model
+model_fit <- model %>% fit(X_train, y_train, epochs = 200, batch_size = 50, validation_split = 0.2, callbacks = list(early_stopping))
+plot(model_fit)
+
+suppressMessages(library(pROC))
+# Evaluating on training data
+results_train_model <- model %>% evaluate(X_train, y_train)
+print(results_train_model)
+results_test_model <- model %>% evaluate(X_test, y_test)
+print(results_test_model)
+
+# Prediction test data
+y_prob_hat_test <- model %>% predict(X_test)
+threshold <- 0.5 # Predict spam if probability > threshold
+y_hat_test <- as.factor(y_prob_hat_test > threshold)
+levels(y_hat_test) <- c("not spam", "spam")
+test_spam <- as.factor(test[, 1])
+levels(test_spam) <- c("not spam", "spam")
+confusionMatrix(data = y_hat_test, test_spam, positive = "spam")
+
+# ROC curve
+par(pty="s")
+roc_obj <- roc(response = test_spam, predictor = as.vector(y_prob_hat_test), print.auc = TRUE, percent=TRUE)
+plot(roc_obj, legacy.axes = TRUE, percent=TRUE, col = "cornflowerblue", main = "ROC spam email classifiers", print.auc=TRUE, print.auc.pattern = "AUC: %0.3f%%", auc.polygon=TRUE)
+```
+
+Second, we construct 1-layer dense model with 8 hidden units, keeping the ADAM optimiser and almost same settings as previous model in order to make comparison as follows:
+
+```{r}
+# Construct 1-layer dense model 
+# Define the model 
+model_1 <- keras_model_sequential() 
+model_1 %>% 
+  # Add first hidden layer with 8 hidden units
+  layer_dense(units = 8, activation = 'relu', input_shape = c(15)) %>% 
+  # Add regularisation via dropout to the first hidden layer
+  layer_dropout(rate = 0.3) %>% 
+  # Add layer that connects to the observations
+  layer_dense(units = 1, activation = 'sigmoid')
+summary(model_1)
+
+# Set early stopping 
+early_stopping <- callback_early_stopping(monitor="val_loss", patience = 10, restore_best_weights = TRUE)
+
+# Compile model
+model_1 %>% compile(loss = 'binary_crossentropy', optimizer = 'adam', metrics = c('accuracy', 'AUC'))
+
+# Fit model
+model_fit <- model_1 %>% fit(X_train, y_train, epochs = 200, batch_size = 50, validation_split = 0.2, callbacks = list(early_stopping))
+plot(model_fit)
+
+suppressMessages(library(pROC))
+# Evaluating on training data
+results_train_model_1 <- model_1 %>% evaluate(X_train, y_train)
+print(results_train_model_1)
+results_test_model_1 <- model_1 %>% evaluate(X_test, y_test)
+print(results_test_model_1)
+
+# Prediction test data
+y_prob_hat_test_1 <- model_1 %>% predict(X_test)
+threshold <- 0.5 # Predict spam if probability > threshold
+y_hat_test_1 <- as.factor(y_prob_hat_test > threshold)
+levels(y_hat_test_1) <- c("not spam", "spam")
+confusionMatrix(data = y_hat_test_1, test_spam, positive = "spam")
+
+# ROC curve
+par(pty="s")
+roc_obj_1 <- roc(response = test_spam, predictor = as.vector(y_prob_hat_test_1), print.auc = TRUE, percent=TRUE)
+plot(roc_obj_1, legacy.axes = TRUE, percent=TRUE, col = "coral", main = "ROC spam email classifiers", print.auc=TRUE, print.auc.pattern = "AUC: %0.3f%%", auc.polygon=TRUE)
+```
+
+In terms of AUC and loss, the model with 2 hidden layers achieved better performance but the difference was not really significant. While the accuracy performance between 2 models were almost the same at around `93%`. In this case, I think the problem is not complicated enough which allow deeper network (2 hidden layers) outperform the 1-hidden-layer model.
+
+## Problem 2. Deep learning for bike rental data (regression)
+
+```{r}
+# Remove data
+rm(list=ls()) # Remove variables
+cat("\014") # Clean workspace
+
+# Load data
+suppressMessages(library(dplyr))
+suppressMessages(library(splines))
+bike_data <- read.csv('/Users/thangtm589/Desktop/UTS/37401 Machine Learning/Computer Lab/Lab 3/bike_rental_hourly.csv')
+
+# Design data
+bike_data$log_cnt <- log(bike_data$cnt)
+bike_data$hour <- bike_data$hr/23 # transform [0, 23] to [0, 1]. 0 is midnight, 1 is 11 PM
+
+# One hot for weathersit
+one_hot_encode_weathersit <- model.matrix(~ as.factor(weathersit) - 1,data = bike_data)
+one_hot_encode_weathersit  <- one_hot_encode_weathersit[, -1] # Remove reference category
+colnames(one_hot_encode_weathersit) <- c('cloudy', 'light rain', 'heavy rain')
+bike_data <- cbind(bike_data, one_hot_encode_weathersit)
+
+# One hot for weekday
+one_hot_encode_weekday <- model.matrix(~ as.factor(weekday) - 1,data = bike_data)
+one_hot_encode_weekday  <- one_hot_encode_weekday[, -1] # Remove reference category
+colnames(one_hot_encode_weekday) <- c('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat')
+bike_data <- cbind(bike_data, one_hot_encode_weekday)
+
+# One hot for weekday
+one_hot_encode_season <- model.matrix(~ as.factor(season) - 1,data = bike_data)
+one_hot_encode_season  <- one_hot_encode_season[, -1] # Remove reference category
+colnames(one_hot_encode_season) <- c('Spring', 'Summer', 'Fall')
+bike_data <- cbind(bike_data, one_hot_encode_season)
+
+# Create lags
+bike_data_new <- mutate(bike_data, lag1 = lag(log_cnt, 1), lag2 = lag(log_cnt, 2),
+                        lag3 = lag(log_cnt, 3), lag4 = lag(log_cnt, 4), lag24 = lag(log_cnt, 24))
+
+bike_data_new <- bike_data_new[-c(1:24),] # Lost 24 obs because of lagging
+
+# Create training and test data
+bike_all_data_train <- bike_data_new[bike_data_new$dteday >= as.Date("2011-01-01") & bike_data_new$dteday <=  as.Date("2012-05-31"), ]
+bike_all_data_test <- bike_data_new[bike_data_new$dteday >= as.Date("2012-06-01") & bike_data_new$dteday <=  as.Date("2012-12-31"), ]
+X_train <- bike_all_data_train[, c("lag1", "lag2",  "lag3", "lag4", "lag24")]
+spline_basis <- ns(bike_all_data_train$hour, df = 10, intercept = FALSE)
+X_train <- cbind(X_train, spline_basis)
+colnames(X_train)[1] <- "intercept"
+knots <- attr(spline_basis, "knots")
+variables_to_keep_in_X <- c("yr", "holiday", "workingday", "temp", "atemp", "hum", "windspeed")
+variables_to_keep_in_X <- c(variables_to_keep_in_X, colnames(one_hot_encode_weathersit), colnames(one_hot_encode_weekday), colnames(one_hot_encode_season))
+X_train <- cbind(X_train, bike_all_data_train[, variables_to_keep_in_X])
+
+# Training data
+X_train <- as.matrix(X_train)
+y_train <- bike_all_data_train$log_cnt
+# Test data
+y_test <- bike_all_data_test$log_cnt
+X_test <- bike_all_data_test[, c("lag1", "lag2",  "lag3", "lag4", "lag24")]
+spline_basis_test <- ns(bike_all_data_test$hour, df=10, knots=knots, intercept = FALSE)
+X_test <- cbind(X_test, spline_basis_test)
+colnames(X_test)[1] <- "intercept"
+X_test <- cbind(X_test, bike_all_data_test[, variables_to_keep_in_X])
+X_test <- as.matrix(X_test)
+```
+
+::: boxed-text
+#### 💪 Problem 2.1
+
+Fit a deep learning model with three hidden layers to the bike rental data. The number of units should be, for each level respectively, 16 (first hidden layer), 8, and 4 (last hidden level). Use ReLU activation functions in all layers. You are free to choose optimisation method and settings, and you may add regularisation via dropout and/or early stopping and/or penalty.
+:::
+
+```{r}
+suppressMessages(library(tensorflow))
+suppressMessages(library(keras3))
+tensorflow::tf$random$set_seed(12345)
+
+# Define the model 
+model <- keras_model_sequential() 
+model %>% 
+  # Add first hidden layer
+  layer_dense(units = 16, activation = 'relu', input_shape = c(34), kernel_regularizer = regularizer_l2(l = 0.01)) %>% 
+  # Add regularisation via dropout to the first hidden layer
+  layer_dropout(rate = 0.2) %>% 
+  # Add second hidden layer
+  layer_dense(units = 8, activation = 'relu') %>%
+  # Add regularisation via dropout to the second hidden layer
+  layer_dropout(rate = 0.2) %>%
+  # Add third hidden layer
+  layer_dense(units = 4, activation = 'relu') %>%
+  # Add regularisation via dropout to the third hidden layer
+  layer_dropout(rate = 0.2) %>%
+  # Add layer that connects to the observations
+  layer_dense(units = 1, activation = 'linear')
+summary(model)
+
+# Set early stopping 
+early_stopping <- callback_early_stopping(monitor="val_loss", patience = 10, restore_best_weights = TRUE)
+
+# Compile model
+model %>% compile(loss = 'mse', optimizer = 'adam', metrics = NULL)
+
+# Fit model
+model_fit <- model %>% fit(X_train, y_train, epochs = 200, batch_size = 50, validation_split = 0.2, callbacks = list(early_stopping))
+plot(model_fit)
+```
+
+::: boxed-text
+#### 💪 Problem 2.2
+
+Compute the RMSEs for the training and test data.
+:::
+
+```{r}
+# Prediction basing on training and test data
+y_hat_train <- model %>% predict(X_train)
+y_hat_test <- model %>% predict(X_test)
+
+# Compute RMSEs
+RMSE_training <- sqrt(sum((y_train - y_hat_train)^2)/length(y_train))
+RMSE_test <- sqrt(sum((y_test - y_hat_test)^2)/length(y_test))
+
+# Print RMSE
+cat(paste0("RMSE Training: ", RMSE_training, "\n",
+           "RMSE Test    : ", RMSE_test, "\n"
+           ))
+```
+
+::: boxed-text
+#### 💪 Problem 2.3
+
+Plot a time series plot of the response in the original scale (i.e. counts and not log-counts) for the last week of the test data (last $24\times 7$ observations). In the same figure, plot a time series plot of the fitted values (in the original scale) from Problem 2.1. Comment on the fit.
+:::
+
+```{r}
+# Design time series data and choose the last week of the test data
+row_to_keep <- c((nrow(bike_all_data_test)-167):nrow(bike_all_data_test))
+time_series <- data.frame(bike_all_data_test$dteday, 
+                          bike_all_data_test$hr, 
+                          exp(y_test),                # Convert data to original scale
+                          exp(y_hat_test))            # Convert data to original scale
+time_series <- time_series[row_to_keep, ] # Keep last week of data
+time_series$datetime <- as.POSIXct(paste(time_series[,1], time_series[,2]), format="%Y-%m-%d %H")
+
+# Change column names
+colnames(time_series) <- c("dteday", "hr", "y_test", "y_hat_test", "datetime")
+
+# Plot time series data
+suppressMessages(library(ggplot2))
+
+ggplot(data = time_series, aes(x = datetime)) +
+  geom_line(aes(y = y_test, colour = "Original"), lwd=1.2) +
+  
+  # Add line of predicted value 
+  geom_line(aes(y = y_hat_test, colour = "Fitted"), lty=1) +
+  
+  scale_colour_manual("", 
+                      breaks = c("Original", "Fitted"),
+                      values = c("red", "green")) +
+  xlab("Datetime") +
+  ylab("Counts") + 
+  theme(axis.text.x=element_text(angle=60, hjust=1))
+```
+
+Looking at the above figure, it indicates that the model didn't perform well when it could not capture the broad trend of the true value, especially at some high-valued peaks on `Dec 27 to Dec 29` or `Dec 31 to Jan 01`. This can be a sign of underfitting.
+
+::: boxed-text
+#### 💪 Problem 2.4
+
+Propose a better deep learning model than that in Problem 2.1. Add the predictions of your new model to the figure you created in Problem 2.3.
+:::
+
+Two of several ways to avoid underfitting for this case are to increase the complexity by increasing number of hidden layers or to reduce the dropout. I decided to remove dropouts and the result `(Upgraded) Fitted` showed the better capability of capturing major peaks.
+
+```{r}
+# Define the model 
+model_upgrade <- keras_model_sequential() 
+model_upgrade %>% 
+  # Add first hidden layer
+  layer_dense(units = 16, activation = 'relu', input_shape = c(34), kernel_regularizer = regularizer_l2(l = 0.01)) %>% 
+  # Add second hidden layer
+  layer_dense(units = 8, activation = 'relu') %>%
+  # Add third hidden layer
+  layer_dense(units = 4, activation = 'relu') %>%
+  # Add layer that connects to the observations
+  layer_dense(units = 1, activation = 'linear')
+summary(model_upgrade)
+
+# Set early stopping 
+early_stopping <- callback_early_stopping(monitor="val_loss", patience = 10, restore_best_weights = TRUE)
+
+# Compile model
+model_upgrade %>% compile(loss = 'mse', optimizer = 'adam', metrics = NULL)
+
+# Fit model
+model_fit_upgrade <- model_upgrade %>% fit(X_train, y_train, epochs = 200, batch_size = 50, validation_split = 0.2, callbacks = list(early_stopping))
+plot(model_fit_upgrade)
+
+# Predict data
+y_hat_test_new <- model_upgrade %>% predict(X_test)
+
+# Add to time series data
+time_series$y_hat_test_new <- exp(y_hat_test_new[row_to_keep])
+
+# Plot 
+ggplot(data = time_series, aes(x = datetime)) +
+  geom_line(aes(y = y_test, colour = "Original"), lwd=1.2) +
+  
+  # Add line of predicted value 
+  geom_line(aes(y = y_hat_test, colour = "Fitted"), lty=1) +
+  
+  # Add line of predicted value 
+  geom_line(aes(y = y_hat_test_new, colour = "(Upgraded) Fitted"), lty=1) +
+  
+  scale_colour_manual("", 
+                      breaks = c("Original", "Fitted", "(Upgraded) Fitted"),
+                      values = c("red", "green", "blue")) +
+  xlab("Datetime") +
+  ylab("Counts") + 
+  theme(axis.text.x=element_text(angle=60, hjust=1))
+```
+
+## Problem 3. Deep learning for classifying images
+
+```{r}
+# Clean data
+rm(list=ls()) # Remove variables
+cat("\014") # Clean workspace
+
+# Load libraries
+suppressMessages(library(pracma)) # For image (matrix) rotation
+suppressMessages(library(caret))
+suppressMessages(library(tensorflow))
+suppressMessages(library(keras3))
+tensorflow::tf$random$set_seed(12345)
+
+# Load and design data 
+mnist <- dataset_mnist()
+X_train_array <- mnist$train$x[1:10000, , ]
+dim(X_train_array) # 10000x28x28 3D array with 10000 images (each 28-by-28 pixels)
+y_train_array <- mnist$train$y[1:10000]
+length(y_train_array) # 10000 element vector with training labels (0-9)
+X_test_array <- mnist$test$x
+y_test_array <- mnist$test$y
+
+X_train <- array_reshape(X_train_array, c(nrow(X_train_array), 784)) # 10000x784 matrix
+X_test <- array_reshape(X_test_array, c(nrow(X_test_array), 784))
+# rescale to (0, 1)
+X_train <- X_train / 255
+X_test <- X_test / 255
+# One-hot labels
+y_train <- to_categorical(y_train_array, 10) # 10000x10 matrix, each row is one-hot (1 for the labelled class and the rest 0)
+y_test <- to_categorical(y_test_array, 10)
+print(y_train[1, ]) # Represent the label 5 (first element is the label 0)
+```
+
+```{r}
+set.seed(12345)
+tensorflow::tf$random$set_seed(12345)
+
+# Construct model
+model_MNIST_2layer <- keras_model_sequential()
+model_MNIST_2layer %>%
+  # Add first hidden layer
+  layer_dense(units = 256, activation = 'relu', input_shape = c(784)) %>%
+  # Add regularisation via dropout to the first hidden layer
+  layer_dropout(rate = 0.3) %>%
+  layer_dense(units = 128, activation = 'relu') %>%
+  # Add regularisation via dropout to the first hidden layer
+  layer_dropout(rate = 0.3) %>%
+  # Add layer that connects to the observations
+  layer_dense(units = 10, activation = 'softmax')
+summary(model_MNIST_2layer)
+
+# Compile model
+model_MNIST_2layer %>% compile(loss = 'categorical_crossentropy', optimizer = 'adam', metrics = c('accuracy'))
+
+# Fit model
+model_MNIST_2layer_fit <- model_MNIST_2layer %>% fit(X_train, y_train, epochs = 50, batch_size = 100, validation_split = 0.2)
+plot(model_MNIST_2layer_fit)
+```
+
+```{r}
+# Predict
+y_pred_test_dl_2layer <- model_MNIST_2layer %>% predict(X_test)
+
+# Get example
+indices <- which(rowSums(y_pred_test_dl_2layer <= 0.55 & y_pred_test_dl_2layer >= 0.45) == 2) #  Gets observations for which the classifier is unsure (have two cells in the interval (0.45, 0.55).
+ind <- indices[1] # Taking the first
+barplot(names.arg = 0:9, y_pred_test_dl_2layer[ind, ], col = "cornflowerblue", ylim = c(0, 1), main = paste("Predicted probs of test image ", ind, sep = ""))
+cat("Actual label: ", which.max(y_test[ind, ]) - 1, ", Predicted label:", which.max(y_pred_test_dl_2layer[ind, ]) - 1, sep = "")
+```
+
+::: boxed-text
+#### 💪 Problem 3.1
+
+Is the model over- or underfitting the data? Explain. Given the same model structure, propose a fix to the issue and implement it.
+:::
+
+The figure `Accuracy and Loss` indicates that the gap of loss between training data and validation data are being **widened** after the 15th epoch, and the validation loss tend to increase. This mean the model is overfitting.
+
+Therefore, we can apply L1 regularisation, set early stopping condition with `patience=15` and even increase the dropout_rate a bit to avoid this overfitting situation, as follows:
+
+```{r}
+model_MNIST_2layer_1 <- keras_model_sequential()
+model_MNIST_2layer_1 %>%
+  # Add first hidden layer
+  layer_dense(units = 256, activation = 'relu', input_shape = c(784), kernel_regularizer = regularizer_l1(l = 0.01)) %>%
+  # Add regularisation via dropout to the first hidden layer
+  layer_dropout(rate = 0.4) %>%
+  layer_dense(units = 128, activation = 'relu') %>%
+  # Add regularisation via dropout to the first hidden layer
+  layer_dropout(rate = 0.4) %>%
+  # Add layer that connects to the observations
+  layer_dense(units = 10, activation = 'softmax')
+summary(model_MNIST_2layer_1)
+
+# Set early stopping
+early_stopping <- callback_early_stopping(monitor="val_loss", patience = 15, restore_best_weights = TRUE)
+
+# Compile model
+model_MNIST_2layer_1 %>% compile(loss = 'categorical_crossentropy', optimizer = 'adam', metrics = c('accuracy'))
+
+# Fit model
+model_MNIST_2layer_fit_fixed <- model_MNIST_2layer %>% fit(X_train, y_train, epochs = 50, batch_size = 100, validation_split = 0.2, callbacks = list(early_stopping))
+plot(model_MNIST_2layer_fit_fixed)
+```
+
+As the above new Accuracy and Loss figure, we can see that after approaching a stable loss, the model proactively stop to avoid overfitting. Moreover, this model also reduced the computation time with less epoch used thanks to early stopping regularization.
+
+::: boxed-text
+#### 💪 Problem 3.2
+
+Compare the deep learning model with convolutional layers to that in Problem 3.1. Discuss the results.
+:::
+
+```{r}
+X_train <- array(X_train_array, c(10000, 28, 28, 1)) # The last dimension is the channel
+X_test <- array(X_test_array, c(10000, 28, 28, 1))
+# Transform values into [0,1] range
+X_train <- X_train / 255
+X_test <- X_test / 255
+# One-hot labels
+y_train <- to_categorical(y_train_array, 10) # 10000x10 matrix, each row is one-hot (1 for the labelled class and the rest 0)
+y_test <- to_categorical(y_test_array, 10)
+
+# Define model
+model_MNIST_2conv1layer <- keras_model_sequential() %>%
+  # First convolutional layer
+  layer_conv_2d(filters = 32, kernel_size = c(3,3), activation = 'relu',
+                input_shape = c(28, 28, 1)) %>%
+  # Second convolutional layer
+  layer_conv_2d(filters = 64, kernel_size = c(3,3), activation = 'relu') %>%
+  # Add a pooling layer after the second convolutional layer
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  # Add regularisation via dropout to the second convolutional layer
+  layer_dropout(rate = 0.4) %>%
+  # Flatten the output of the preceeding layer
+  layer_flatten() %>%
+  # A third layer fully connected (input has been flattened)
+  layer_dense(units = 128, activation = 'relu') %>%
+  # Add regularisation via dropout to preceeding layer
+  layer_dropout(rate = 0.4) %>%
+  # Add layer that connects to the observations
+  layer_dense(units = 10, activation = 'softmax')
+
+# Compile model
+model_MNIST_2conv1layer %>% compile(loss = 'categorical_crossentropy', optimizer = 'adam', metrics = c('accuracy'))
+model_MNIST_2conv1layer_fit <- model_MNIST_2conv1layer %>% fit(X_train, y_train, batch_size = 50, epochs = 15, validation_split = 0.2)
+plot(model_MNIST_2conv1layer_fit)
+
+# Predict 
+y_hat_test <- model_MNIST_2conv1layer %>% predict(X_test)
+```
+
+Looking at both loss and accuracy numbers of validation data, we can see that performance of the model using convolutional layers are more outstanding. While previous model in `Problem 3.1` just reach around `96%` for validation accuracy and `0.3` for validation loss, this model outperform by achieving around `97.5%` and `0.1` respectively. This is because convolutional layers prevent input from affecting all output nodes, it is designed to preserve the spatial relationships between pixels in the image, which helps generalize better. However, this new model requires more effort of computation as a result of more complicated model.
+
+::: boxed-text
+#### 💪 Problem 3.3
+
+Just before Problem 3.1, we inspected a special case where the classifier (based on the dense layers) was very uncertain. Compute the predicted class probabilities of that particular case with the new model (based on the convolutional filters) and compare to the previous result.
+:::
+
+```{r}
+# Get the y value of previous model to compare
+barplot(names.arg = 0:9, y_hat_test[ind, ], col = "cornflowerblue", ylim = c(0, 1), main = paste("Predicted probs of test image ", ind, sep = ""))
+cat("Actual label: ", which.max(y_test[ind, ]) - 1, ", Predicted label:", which.max(y_hat_test[ind, ]) - 1, sep = "")
+```
+
+In terms of this example (maybe different due to various seed), the result from this model with convolutional layers is already improved compared to previous one when it reduced the uncertainty and correctly predicted. The correct predicted class probability is already significantly higher. This is also aligned with the better statistics in term of Accuracy and Loss in Problem 3.2. The advantage of convolutional layers is utilizing the spatial relationship which worked well in our case regarding images.
+
+::: boxed-text
+#### 💪 Problem 3.4
+
+Fit a neural network with at least two hidden convolutional layers to the data above. You are free to choose the settings, such as regularisation (dropout and/or early stopping and/or penalty), validation split, optimiser, etc.
+:::
+
+```{r}
+suppressMessages(library(grid))
+cifar10 <- dataset_cifar10()
+class_names <- c('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
+X_train_array <- cifar10$train$x[1:10000, , , ] # 10000x32x32x3 matrix
+y_train_array <- cifar10$train$y[1:10000]
+y_train_labels <- class_names[y_train_array+1] # increase y=0 by 1 since R start from 1
+X_test_array <- cifar10$test$x # 10000x32x32x3 matrix
+y_test_array <- cifar10$test$y
+y_test_labels <- class_names[y_test_array+1]
+# rescale to (0, 1)
+X_train <- X_train_array / 255
+X_test <- X_test_array / 255
+# One-hot labels
+y_train <- to_categorical(y_train_array, 10) # 50000x10 matrix, each row is one-hot (1 for the
+y_test <- to_categorical(y_test_array, 10)
+
+# Plot a dog
+obs_to_plot <- which(y_train_labels == "dog")[1] # first dog that appears
+# Plot image obs_to_plot (in RGB color) in the training set. First get the rgb
+image_nbr <- obs_to_plot
+rgb_image <- rgb(X_train[image_nbr, , ,1], X_train[image_nbr, , ,2], X_train[image_nbr, , ,3])
+dim(rgb_image) <- dim(X_train[image_nbr, , ,1])
+grid.newpage()
+grid.raster(rgb_image, interpolate=FALSE)
+```
+
+Not expecting high accuracy, I actively reduced the number of filters, patience, set low number of epoch (`20`) and added early stopping condition in order to reduce the computation effort.
+
+```{r}
+# Define model
+model_rgb_2conv1layer <- keras_model_sequential() %>%
+  # First convolutional layer
+  layer_conv_2d(filters = 16, kernel_size = c(3,3), activation = 'relu',
+                input_shape = c(32, 32, 3)) %>%
+  # Second convolutional layer
+  layer_conv_2d(filters = 32, kernel_size = c(3,3), activation = 'relu') %>%
+  # Add a pooling layer after the second convolutional layer
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>%
+  # Add regularisation via dropout to the second convolutional layer
+  layer_dropout(rate = 0.4) %>%
+  # Flatten the output of the preceeding layer
+  layer_flatten() %>%
+  # A third layer fully connected (input has been flattened)
+  layer_dense(units = 64, activation = 'relu') %>%
+  # Add regularisation via dropout to preceeding layer
+  layer_dropout(rate = 0.4) %>%
+  # Add layer that connects to the observations
+  layer_dense(units = 10, activation = 'softmax')
+
+# Set early stopping
+early_stopping <- callback_early_stopping(monitor="val_loss", patience = 5, restore_best_weights = TRUE)
+
+# Compile model
+model_rgb_2conv1layer %>% compile(loss = 'categorical_crossentropy', optimizer = 'adam', metrics = c('accuracy'))
+model_rgb_2conv1layer_fit <- model_rgb_2conv1layer %>% fit(X_train, y_train, batch_size = 100, epochs = 20, validation_split = 0.2, callbacks = list(early_stopping))
+plot(model_rgb_2conv1layer_fit)
+```
+
+::: boxed-text
+#### 💪 Problem 3.5
+
+Compute the confusion matrix for the test data. Out of the images that are horses, which two predicted classes are the most common when the classifier is wrong?
+:::
+
+```{r}
+# Predict data 
+y_hat_test <- model_rgb_2conv1layer %>% predict(X_test)
+
+# Transform data
+label_y_test <- class_names[apply(y_test, 1, which.max)]
+label_y_hat_test <- class_names[apply(y_hat_test, 1, which.max)]
+
+# Compute the confusion matrix for the test data
+confusion_matrix <- table(label_y_test, label_y_hat_test, dnn = c("Actual", "Prediction"))
+print(confusion_matrix)
+
+# Get the answer
+horse_row <- confusion_matrix["horse", ]
+horse_row_without_horse <- horse_row[names(horse_row) != "horse"]
+sorted_horse_row <- sort(horse_row_without_horse, decreasing = TRUE)
+
+# Print the answer
+cat(paste0("Out of the images that are horses, two most common predicted classes when the classifier is wrong are:", "\n",
+           names(sorted_horse_row[1]),": ", sorted_horse_row[1], " times\n",
+           names(sorted_horse_row[2]),": ", sorted_horse_row[2], " times\n"
+           ))
+```
+
+::: boxed-text
+#### 💪 Problem 3.6
+
+Find an image in the test data set that the classifier is uncertain about (i.e. no class has close to probability 1). Plot the image and, moreover, plot the predictive distribution of that image (a bar plot with the probability for each of the classes). Did your classifier end up taking the right decision?
+:::
+
+```{r}
+# Find the y hat value that exists the uncertainty
+indices <- which(rowSums(y_hat_test <= 0.55 & y_hat_test >= 0.45) == 2)
+
+# Get the first image 
+ind <- indices[1]
+
+# Plot the first image that has the uncertainty
+rgb_image <- rgb(X_train[ind, , ,1], X_train[ind, , ,2], X_train[ind, , ,3])
+dim(rgb_image) <- dim(X_train[image_nbr, , ,1])
+grid.newpage()
+grid.raster(rgb_image, interpolate=FALSE)
+
+# Plot the predictive distribution 
+barplot(names.arg = class_names, y_hat_test[ind, ], col = "cornflowerblue", ylim = c(0, 1), main = paste("Predicted probs of test image ", ind, sep = ""))
+
+# Print result
+cat("Actual label: ", label_y_test[ind], ", Predicted label:", label_y_hat_test[ind], sep = "")
+```
+
+When I ran the code, unfortunately, my model predicted incorrectly and the uncertainty still existed.
+
+## Problem 4. Gaussian process prior
+
+::: boxed-text
+#### 💪 Problem 4.1
+
+Assume $\sigma_f=1.5$ and $\ell=0.5$. Use the function above to compute:
+
+1.  The covariance between 0.3 and 0.7.
+
+2.  The covariance between 0.1 and 0.5.
+
+3.  The correlation between -0.2 and -0.5.
+
+Explain why the covariances in 1. and 2. are the same.
+:::
+
+```{r}
+# Assign value
+sigma_f = 1.5
+ell = 0.5
+
+# Compute the squared exponential kernel 
+pairwise_cov_squared_exp <- function(x, x_prime, sigma_f, ell) {
+  return(sigma_f^2*exp(-1/(2*ell^2)*(x - x_prime)^2))
+}
+
+# Compute covariance and correlation
+cov1 <- pairwise_cov_squared_exp(0.3, 0.7, sigma_f, ell)
+cov2 <- pairwise_cov_squared_exp(0.1, 0.5, sigma_f, ell)
+cor3 <- pairwise_cov_squared_exp(-0.2, -0.5, sigma_f, ell) / sigma_f^2
+
+# Print covariance and correlation
+cat(paste0("The covariance between 0.3 and 0.7.   : ", cov1, "\n",
+           "The covariance between 0.1 and 0.5.   : ", cov2, "\n",
+           "The correlation between -0.2 and -0.5 : ", cor3, "\n"
+           ))
+```
+
+Theoretically, this squared exponential covariance kernel indicates the covariance between two points basing on their distance. Here, we can see that the absolute differences between two pairs `(0.3, 0.7)` and `(0.1, 0.5)`, which also express their distances, are all equal to `0.4`. This means that their kernel values should be also equal
+
+::: boxed-text
+#### 💪 Problem 4.2
+
+Compute the kernel matrix (on the input values specified below) with the help of the `pairwise_cov_squared_exp()` function. Interpret the value of row 2 and column 5 in the kernel matrix. Use the following input values when computing the kernel matrix:
+
+```{r}
+X <- seq(-1, 1, length.out = 21)
+```
+:::
+
+```{r}
+# Input value
+X <- seq(-1, 1, length.out = 21)
+
+# Construct kernel matrix function
+kernal_matrix_loop <- function(X, sigma_f, ell) {
+  # Declare kernel matrix 
+  kernel_matrix <- matrix(0, nrow=length(X), ncol=length(X))
+  
+  for (i in 1:nrow(kernel_matrix)) {
+    for (j in 1:ncol(kernel_matrix)) {
+      kernel_matrix[i, j] <- pairwise_cov_squared_exp(X[i], X[j], sigma_f, ell)
+    }
+  }
+  return(kernel_matrix)
+}
+
+# Compute kernel matrix
+kernel_matrix <- kernal_matrix_loop(X, 1.5, 0.5)
+
+# Print the value of row 2 and column 5 in the kernel matrix
+cat(paste0("The value of row 2 and column 5 in the kernel matrix : ", kernel_matrix[2, 5], "\n",
+           "X2: ", X[2], "\n",
+           "X5: ", X[5], "\n"
+           ))
+```
+
+If we consider the list of 21 X inputs as above including $(X_1, X_2, ..., X_{21})$, the value of row 2 and column 5 in the kernel matrix, which is `1.879`, specifies how correlated the function values at the value $X_2 = -0.9$ and $X_5=-0.6$ are. The higher value might indicate higher correlation among the function values and also shorter distance between $X_2$ and $X_5$.
+
+::: boxed-text
+#### 💪 Problem 4.3
+
+Compare the computing times between the two ways of constructing the kernel matrix (i.e. the double for-loop vs the vectorised version). Use the input vector `X<-seq(-1,1,length.out=500)` when comparing the computing times.
+:::
+
+```{r}
+kernel_matrix_squared_exp <- function(X, Xstar, sigma_f, ell) {
+  # Computes the kernel matrix for the squared exponential kernel model
+  # Compute the pairwise squared Euclidean distances
+  pairwise_squared_distances <- outer(X, Xstar, FUN = "-")^2
+  # Compute the kernel matrix element-wise
+  kernel_matrix <- sigma_f^2*exp(-1/(2*ell^2)*pairwise_squared_distances)
+  return(kernel_matrix)
+}
+
+# Input value
+X <- seq(-1,1,length.out=500)
+
+# Measure computation time
+suppressMessages(library(rbenchmark))
+
+# Set seed and benchmark
+set.seed(1234)
+benchmark(kernal_matrix_loop(X, 1.5, 0.5), kernel_matrix_squared_exp(X, X, 1.5, 0.5))
+```
+
+With much smaller `elapsed` numbers (column containing values reported by system.time) around `1` compared to around `30`), the vectorised version outperform in terms of computing time.
+
+::: boxed-text
+#### 💪 Problem 4.4
+
+Play around with the length scale $\ell$ in the code above. Discuss the role of the length scale and its implication for the bias-variance trade off.
+:::
+
+```{r}
+suppressMessages(library(mvtnorm)) # for multivariate normal
+n_grid <- 200
+X_grid <- seq(-1, 1, length.out = n_grid)
+sigma_f <- 1
+
+m_X <- rep(0, n_grid) # Create zero vector
+
+# Assign ell values
+ell_list <- c(0.1, 0.3, 1)
+
+set.seed(1234)
+
+# Plot figure for each ell
+for (ell in ell_list) {
+  K_X_X <- kernel_matrix_squared_exp(X_grid, X_grid, sigma_f, ell)
+  GP_realisations <- rmvnorm(n = 5, mean = m_X, sigma = K_X_X)
+  
+  # Plot the GP
+  matplot(X_grid, t(GP_realisations), type = "l", lty = 1, col = c("cornflowerblue", "lightcoral", "green", "black", "purple"), xlab = "x", ylab = "f(x)", main = paste("Simulations from the GP prior with ell=", ell, sep=""), xlim=c(-1, 1.5), ylim=c(-3*sigma_f, 3*sigma_f))
+  legend("topright", legend = c("Sim 1", "Sim 2", "Sim 3", "Sim 4", "Sim 5"), col = c("cornflowerblue", "lightcoral", "green", "black", "purple"), lty = 1)
+}
+
+```
+
+The 3 figures indicate that with a higher length scale $\ell$, the lines are smoother. Smaller $\ell$ means that function values can change quickly and vice versa. This is because with the same distance between variables, a higher $\ell$ indeed achieves higher covariance which means the value of function can vary more significantly. If the function values are not correlated enough (low $\ell$), they might be too spike which leads to an increase of variance in the model. Meanwhile, if the values are too correlated (high $\ell$), the model might not be able to capture the full variability of the function, resulting in an increase in bias. So this is bias-variance trade-off when we choose $\ell$.
+
+## Problem 5. Gaussian process posterior
+
+::: boxed-text
+#### 💪 Problem 5.1
+
+Derive (analytically) $\mathbb{E}\left(\mathbf{y}\right)$ and $\mathrm{Cov}\left(\mathbf{y}\right)$.
+
+::: callout-tip
+The tower property of expectations is
+
+$$
+\mathbb{E}\left(\mathbf{y}\right)=\mathbb{E}_\mathbf{f}\left(\mathbb{E}\left(\mathbf{y}|\mathbf{f}\right)\right).
+$$
+
+The law of total covariance $$\mathrm{Cov}\left(\mathbf{y}\right)= \mathbb{E}_\mathbf{f}\left(\mathrm{Cov}\left(\mathbf{y}|\mathbf{f}\right)\right)+\mathrm{Cov}_\mathbf{f}\left(\mathbb{E}\left(\mathbf{y}|\mathbf{f}\right)\right).$$
+
+The expectation and covariance of the inner expressions are with respect to the distribution of $\mathbf{y}|\mathbf{f}$, i.e. treating $\mathbf{f}$ as known.
+:::
+:::
+
+Since $f(x)$ follows a Gaussian process prior, i.e. $f(x)\sim\mathcal{GP}\left(m(x), k(x,x^\prime)\right)$, and $\varepsilon\sim N(0,\sigma_{\varepsilon}^2)$, we can derive:
+
+$$
+\begin{align*}
+\mathbb{E}\left(\mathbf{y}\right)
+&=\mathbb{E}_\mathbf{f}\left(\mathbb{E}\left(\mathbf{y}|\mathbf{f}\right)\right)
+\\[5pt]&=\mathbb{E}_\mathbf{f}\left(\mathbb{E}\left(\mathbf{f} + \varepsilon|\mathbf{f}\right)\right)
+\\[5pt]&=\mathbb{E}_\mathbf{f}\left(\mathbb{E}(\mathbf{f}|\mathbf{f}) + \mathbb{E}(\varepsilon|\mathbf{f})\right) 
+\\[5pt]&=\mathbb{E}_\mathbf{f}\left(\mathbf{f}\right) (since\ \mathbb{E}(\mathbf{f}|\mathbf{f})=\mathbf{f}\ and\ \mathbb{E}(\varepsilon|\mathbf{f}
+)=0)
+\\[5pt]&=\mathbf{m}(\mathbf{X})
+.
+\end{align*}
+$$ $$
+\begin{align*}
+\mathrm{Cov}\left(\mathbf{y}\right)
+&=\mathbb{E}_\mathbf{f}\left(\mathrm{Cov}\left(\mathbf{y}|\mathbf{f}\right)\right)+\mathrm{Cov}_\mathbf{f}\left(\mathbb{E}\left(\mathbf{y}|\mathbf{f}\right)\right)
+\\[5pt]&=\mathbb{E}_\mathbf{f}\left( \mathrm{Cov}(\mathbf{f}|\mathbf{f}) + \mathrm{Cov}(\mathbf{\varepsilon}|\mathbf{f}) \right) + \mathrm{Cov}_\mathbf{f}\left(\mathbf{f}\right)
+\\[5pt]&=\mathbb{E}_\mathbf{f}\left( \sigma^2_{\varepsilon}\mathit{I_n} \right) + \mathbf{K}(\mathbf{X},\mathbf{X^\prime}) (since\ \mathrm{Cov}(\mathbf{f}|\mathbf{f}) =0)
+\\[5pt]&=\sigma^2_{\varepsilon}\mathit{I_n} + \mathbf{K}(\mathbf{X},\mathbf{X^\prime})
+.
+\end{align*}
+$$
+
+::: boxed-text
+#### 💪 Problem 5.2
+
+Predict the Gaussian process on a fine grid, `x_grid<-seq(0,1,length.out=1000)`. In the same figure, plot a scatter of the data, the posterior mean of the Gaussian process, and $95\%$ probability intervals for the Gaussian process. Explain why your interval does not seem to capture $95\%$ of the data.
+
+::: callout-tip
+In the smoothing we did above, $\mathbf{X}_*=\mathbf{X}$. This is not the case here, which has several implications when using the code above.
+:::
+:::
+
+```{r}
+load(file = '/Users/thangtm589/Desktop/UTS/37401 Machine Learning/Computer Lab/Lab 3/penguins.RData')
+y <- penguins$dive_heart_rate
+n <- length(y)
+X <- penguins$duration/max(penguins$duration) # Scale duration [0, 1]
+
+plot(X, y, main="DHR vs scaled duration", col = "cornflowerblue", xlab = "Scaled duration", ylab = "Dive heart rate (DHR)")
+sigma_f <- 100
+ell <- 0.6
+sigma_eps <- sqrt(150)
+
+# Case 2: Use other Xstart
+X_grid <- seq(0,1,length.out=1000)
+# Compute means and kernel matrices
+# Prior means
+m_X <- rep(0, n)
+m_Xgrid <- m_X
+# Prior covariances
+K_X_X <- kernel_matrix_squared_exp(X, X, sigma_f, ell)
+K_X_Xgrid <- kernel_matrix_squared_exp(X, X_grid, sigma_f, ell)
+K_Xgrid_X <- t(K_X_Xgrid)
+K_Xgrid_Xgrid <- kernel_matrix_squared_exp(X_grid, X_grid, sigma_f, ell)
+# Conditional distribution of f given y is normal. 
+fbar_grid <- m_Xgrid + K_Xgrid_X%*%solve(K_X_X + sigma_eps^2*diag(n)) %*% (y - m_X)
+cov_grid <- K_Xgrid_Xgrid - K_Xgrid_X %*% solve(K_X_X + sigma_eps^2*diag(n)) %*% K_X_Xgrid
+lines(X_grid, fbar_grid, col = "purple", type = "l", lwd=3)
+
+# Calculate sigma
+sigma_cov <- sqrt(diag(cov_grid))
+
+# Add 95% probability interval
+# Define x values for shading (X_grid for this example)
+x_shade <- X_grid
+# Lower and upper interval (prior mean is zero)
+lower_interval <- fbar_grid - 1.96*(sigma_cov)*rep(1, length(X_grid))
+upper_interval <- fbar_grid + 1.96*(sigma_cov)*rep(1, length(X_grid))
+
+# Create a polygon to shade the prediction interval (alpha controls transparency)
+polygon(c(x_shade, rev(x_shade)), c(lower_interval, rev(upper_interval)), col = rgb(0, 0, 1, alpha = 0.05), border = NA)
+
+# Set legend
+legend(x = "topright", pch = c(1, 1), col = c("cornflowerblue", "purple"), legend=c("Data", "Grid (fitted) values"))
+
+```
+
+Actually, the 95% interval shade indeed represent the uncertainty of the mean estimate of the f function instead of the original dataset. With quite high $\ell$ value (at `0.6`), the exponential covariance can be high which leads to smoother lines of predicted values of function. Therefore, we can see that the width of the interval shade is relatively small.
+
+::: boxed-text
+#### 💪 Problem 5.3
+
+For simplicity, assume that the only unknown parameter is the length scale $\ell$. Use the `optim()` function to maximise the log of the marginal likelihood to find the maximum likelihood estimate of $\ell$. Treat $\sigma_f$ and $\sigma_\varepsilon$ as known (fixed at $\sigma_f=100$ and $\sigma_\varepsilon=\sqrt{150}$).
+:::
+
+Since $\mathbf{y}|\boldsymbol{\theta} \sim \mathcal{N}\left(\mathbf{m}(\mathbf{X}), \mathbf{K}(\mathbf{X},\mathbf{X})+\sigma_{\varepsilon}^2\boldsymbol{I}_{n}\right)$ and let $\lambda$ denote eigenvalue of $\mathbf{K}(\mathbf{X},\mathbf{X})$, we have the equation of the log of the marginal likelihood as follows: $$
+\begin{align*}
+\log p(\mathbf{y}|\boldsymbol{\theta})
+&= \log \Bigg( (2\pi)^{-\frac{n}{2}} \det(\Sigma)^{-\frac{1}{2}} \exp\left( -\frac{1}{2}(\boldsymbol{y} - \mu)^\top \Sigma^{-1} (\boldsymbol{y} - \mu) \right) \Bigg)\\[5pt]
+&=\log\Bigg((2\pi)^{-\frac{n}{2}} \det(\mathbf{K}(\mathbf{X},\mathbf{X})+\sigma_{\varepsilon}^2\boldsymbol{I}_{n})^{-\frac{1}{2}} 
+\exp\left(-{\frac{1}{2}} (\mathbf{y}-\mathbf{m}(\mathbf{X}))^T(\mathbf{K}(\mathbf{X},\mathbf{X})+\sigma_{\varepsilon}^2\boldsymbol{I}_{n})^{-1}(\mathbf{y}-\mathbf{m}(\mathbf{X}))\right) \Bigg)
+\\[5pt]&= \log\left((2\pi)^{-\frac{n}{2}}\right) -\frac{1}{2}\log\left(\det(\mathbf{K}(\mathbf{X},\mathbf{X})+\sigma_{\varepsilon}^2\boldsymbol{I}_{n})\right) - \frac{1}{2} (\mathbf{y}-\mathbf{m}(\mathbf{X}))^T(\mathbf{K}(\mathbf{X},\mathbf{X})+\sigma_{\varepsilon}^2\boldsymbol{I}_{n})^{-1}(\mathbf{y}-\mathbf{m}(\mathbf{X}))
+\\[5pt]&= {-\frac{n}{2}}\log(2\pi)\ -\frac{1}{2}
+\sum_{i=1}^n\log\left(\lambda_i+\sigma_{\varepsilon}^2 \right) - 
+\frac{1}{2} (\mathbf{y}-\mathbf{m}(\mathbf{X}))^T(\mathbf{K}(\mathbf{X},\mathbf{X})+\sigma_{\varepsilon}^2\boldsymbol{I}_{n})^{-1}(\mathbf{y}-\mathbf{m}(\mathbf{X}))
+\end{align*}
+$$
+
+First, I chose to minimize the negative marginal log likelihood instead of maximizing it simply because the minimization is more efficient. Therefore, I keep the default setting of `optim()` to implement minimizing. Moreover, I also assume that $\mathbf{m}(\mathbf{X})=0$.
+
+```{r}
+# Construct function to compute negative marginal log likelihood
+neg_log_marginal_llh <- function(y, X, sigma_f, sigma_eps, ell) {
+  n <- length(y)
+  K_X_X <- kernel_matrix_squared_exp(X, X, sigma_f, ell)
+  m_X <- rep(0, n)
+  capital_sigma <- K_X_X + sigma_eps^2*diag(n)
+  lambda <- eigen(K_X_X)$values
+  log_p_y <- -(n/2)*log(2*pi) - (1/2) * sum(log(lambda + sigma_eps^2)) - (1/2) * (t(y-m_X) %*% solve(capital_sigma) %*% (y-m_X))
+  return(-log_p_y)
+}
+
+# Initialize value
+ell_start <- 0.6
+
+# Convert e-00 to decimal form
+options(scipen = 999)
+
+# Use the optim() function with method="L-BFGS-B" to learn the parameters by minize negative marginal log likelihood function
+optimal_ell <- optim(par = ell_start, fn = neg_log_marginal_llh, method = "L-BFGS-B", y = y, X = X, sigma_f = 100, sigma_eps = sqrt(150))$par
+
+# Print result
+cat("Optimal ell with the restriction is: ", optimal_ell)
+```
+
+::: boxed-text
+#### 💪 Problem 5.4
+
+Another approach (that does not use the marginal likelihood) to estimate $\boldsymbol{\theta}$ is via cross-validation. Assume again that the only unknown parameter is $\ell$. Use $K=5$ fold cross-validation to estimate $\ell$.
+:::
+
+```{r}
+# Initialize values
+sigma_f <- 100
+sigma_eps <- sqrt(150)
+ell_grid <- seq(0,1,length.out=50)
+K = 5
+
+# Design the k-fold data
+ind <- c(1:length(y))
+index <- split(ind, ceiling(seq_along(ind) / (length(y)/K)))
+
+# Implement cross-validation
+RMSE <- c()
+for (ell in ell_grid) {
+  RMSE_holdout <- 0
+  for (i in c(1:K)) {
+    test_row <- index[[i]]
+    # Design traing and test data
+    X_train <- X[-test_row]
+    X_test <- X[test_row]
+    y_train <- y[-test_row]
+    y_test <- y[test_row]
+    identity_matrix <- diag(length(X_train))
+    
+    # Calculate kernel mattrix
+    K_X_X <- kernel_matrix_squared_exp(X_train, X_train, sigma_f, ell)
+    K_X_Xtest <- kernel_matrix_squared_exp(X_train, X_test, sigma_f, ell)
+    
+    # Predict y hat value
+    y_hat_test = t(K_X_Xtest) %*% solve((sigma_eps^2)*identity_matrix + K_X_X) %*% y_train
+    RMSE_holdout <- RMSE_holdout + sqrt(sum((y_test - y_hat_test)^2)/length(y_test))
+  }
+  RMSE_k_fold <- RMSE_holdout/K
+  RMSE <- rbind(RMSE, c(ell, RMSE_k_fold))
+}
+
+RMSE <- as.data.frame(RMSE)
+colnames(RMSE) <- c('ell', 'rmse')
+
+# Print the ell value with lowest cross-validated RMSE
+cat('Ell value resulting in lowest cross-validated RMSE is: ', RMSE[which.min(RMSE$rmse), ]$ell )
+```
+
+::: boxed-text
+#### 💪 Problem 5.5
+
+Assume now the realistic situation that the full $\boldsymbol{\theta}$ is unknown, i.e. all parameters $\sigma_f,\ell,\sigma_\varepsilon$. Estimate them by maximising the log of the marginal likelihood using the `optim()` function (no cross-validation!). Do your estimates coincides with the values I gave you, i.e. $\sigma_f=100,\ell=0.6,\sigma_\varepsilon=\sqrt{150}$?
+:::
+
+```{r}
+# Construct function to compute marginal likelihood
+neg_log_marginal_llh_1 <- function(y, X, theta) {
+  sigma_f <- theta[1]
+  sigma_eps <- theta[2]
+  ell <- theta[3]
+  n <- length(y)
+  K_X_X <- kernel_matrix_squared_exp(X, X, sigma_f, ell)
+  m_X <- rep(0, n)
+  capital_sigma <- K_X_X + sigma_eps^2*diag(n)
+  lambda <- eigen(K_X_X)$values
+  log_p_y <- -(n/2)*log(2*pi) - (1/2) * sum(log(lambda + sigma_eps^2)) - (1/2) * (t(y-m_X) %*% solve(capital_sigma) %*% (y-m_X))
+  return(-log_p_y)
+}
+
+# Initialize values
+sigma_f <- 100
+sigma_eps <- sqrt(150)
+ell <- 0.6
+
+# Use the optim() function with method="L-BFGS-B" to learn the parameters
+optimal_params <- optim(par = c(sigma_f, sigma_eps, ell), fn = neg_log_marginal_llh_1, method = "L-BFGS-B", y = y, X = X)$par
+
+# Convert e-00 to decimal form
+options(scipen = 999)
+
+# Print results
+cat(paste0("Given parameters are: ", "\n",
+           "sigma_f:   ", sigma_f, "\n",
+           "sigma_eps: ", sigma_eps, "\n",
+           "ell:       ", ell, "\n\n",
+           
+           "Optimal parameters are: ", "\n",
+           "sigma_f:   ", optimal_params[1], "\n",
+           "sigma_eps: ", optimal_params[2], "\n",
+           "ell:       ", abs(optimal_params[3]), "\n"
+           ))
+```
+
+The values of $\sigma_f$, $\sigma_\varepsilon$ and $\ell$ are almost equal to the given ones.
